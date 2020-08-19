@@ -217,6 +217,15 @@ void canvasSetup(){
   image(reference, 0, 0);
 }
 
+public class cellComparator implements Comparator<Integer>{
+  @Override
+  public int compare(Integer a, Integer b){
+    if(T[a] < T[b]) return -1;
+    if(T[a] > T[b]) return 1;
+    else return 0;
+  }
+}
+
 void initialize(){
   loadPixels();
   for(int i = 0; i < width * height; i ++){
