@@ -1,25 +1,19 @@
 import java.util.*;
 import processing.svg.*;
-import ch.bildspur.postfx.builder.*;
-import ch.bildspur.postfx.pass.*;
-import ch.bildspur.postfx.*;
 
-PostFX fx;
-
-String filename = "hand2.png";
+String filename = "ellie.png";
 PImage reference, tracemap;
 PShape stencil;
 PGraphics canvas;
-int interval = 8;
+int interval = 18; //Try changing this!
 int fieldNo = 0;
 int currentFrame = 0;
 int step;
 int gridsize = 100;
 color line = color(0);
 color bg = color(255);
-color from = #B77A64;
-color to = #FFFF00;
 
+float epsilon = 0.1;
 float[][] SobelX = {{1, 0, -1}, {2, 0, -2}, {1, 0, -1}};
 float[][] SobelY = {{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}};
 float[][] erode = {{1.0/9, 1.0/9, 1.0/9},
@@ -30,6 +24,7 @@ PriorityQueue<Integer> narrowBand;
 IntList origin, obstacles;
 ArrayList<ArrayList<IntList>> snapshots;
 ArrayList<IntList> paths;
+//Each pixel is referenced by a single integer, which can access each of these arrays:
 PVector[] gradients, tangents;
 boolean[] frozen, obstacleMap;
 float[] T, F, D, tangentX, tangentY, curl, boundaryMap;
@@ -39,12 +34,8 @@ boolean render = false, pencil = false, record = false, run = true,
         overlay = false;
 
 void setup(){
-   fullScreen(P2D);
-  //size(600, 600, P2D);
+  fullScreen(P2D);
   canvasSetup();
-  fx = new PostFX(this);
-  // pixelDensity(2);
-  // println(height);
 }
 
 void draw(){
@@ -54,19 +45,24 @@ void draw(){
   }
   fieldNo %= 3;
   currentFrame %= interval * 2;
+  //Instructions for render mode
   if(render){
+    //For each step, process every pixel in the narrow band
     int s = narrowBand.size();
     for(int i = 0; i < s; i ++){
       if(!narrowBand.isEmpty()){
         updateMap();
       }
     }
+    //Once the 2D equation is solved, calculate the tangent and curl fields
     if(tSolved && !fieldSolved){
+      //Feather the edge of the solution so the tangent and curl fields aren't undefined there
       for(int o: obstacles){
         for(int n: searchArea(o)){
           if(T[n] < T[o]) T[o] = T[n] + 1;
         }
       }
+      //Create the tangent vector field using Sobel operations
       for(int i = 0; i < pixels.length; i ++){
         float x = convolution(i, SobelX, T);
         float y = convolution(i, SobelY, T);
@@ -78,10 +74,11 @@ void draw(){
         tangentY[i] = v.y;
       }
       boundaryMap = erode(boundaryMap);
+      //Find the curl of the tangent field
       for(int i = 0; i < pixels.length; i ++) curl[i] = abs(convolution(i, SobelX, tangentY) - convolution(i, SobelY, tangentX));
       fieldSolved = true;
-      // for(IntList i: snapshots.get(currentFrame)) trace(i.copy());
     }
+    //Display and animate the lines
     if(narrowBand.isEmpty()){
       tSolved = true;
       if(!showField){
@@ -101,20 +98,12 @@ void draw(){
           else if(fieldNo == 2) pixels[i] = color(curl[i] * 10);
         }
         for(int i: obstacles) pixels[i] = color(0);
-        // for(IntList i: paths){
-        //   for(int j = 0; j < i.size(); j ++){
-        //     pixels[i.get(j)] = color((j * 2) % 360, 255, 255);
-        //   }
-        // }
-        // if(paths.isEmpty()){
-        //   for(IntList i: snapshots.get(currentFrame)) trace(i.copy());
-        // }
         updatePixels();
-        // image(tracemap, 0, 0);
         colorMode(RGB, 255, 255, 255);
       }
     }
   }
+  //Instructions for drawing mode
   else{
     background(0, 0, 255);
     image(reference, 0, 0);
@@ -122,6 +111,7 @@ void draw(){
     canvas.stroke(255, 0, 0);
     canvas.strokeWeight(2);
     canvas.fill(255, 0, 0);
+    //Automatic drawing functions
     if(keyPressed){
       if((key == 'r' || key == 'R')){
         for(int i = 0; i < 2; i ++) canvas.point(random(0, width), random(0, height));
@@ -132,6 +122,7 @@ void draw(){
       }
       else if((key == 'g' || key == 'G')){
         int a = gridsize;
+        //Turn this on to rotate the grid
         //pushMatrix();
         //translate(width/2 - 150, -100);
         //rotate(radians(45));
@@ -140,28 +131,16 @@ void draw(){
         //popMatrix();
       }
     }
-    if(overlay){
-      fill(255, 0, 0);
-      shape(stencil, mouseX, mouseY);
-      if(pencil) canvas.shape(stencil, mouseX, mouseY);
-    }
     else if(pencil) canvas.line(pmouseX, pmouseY, mouseX, mouseY);
     canvas.endDraw();
     image(canvas, 0, 0);
   }
-
-  //int bloom = 20;
-  //if(fieldSolved){
-  //  fx.render()
-  //    //.sobel()
-  //    .bloom(0.1, bloom, bloom)
-  //    .compose();
-  //}
 }
 
 void mousePressed(){pencil = true;}
 void mouseReleased(){pencil = false;}
 
+//Key bindings
 void keyReleased(){
   if(key == ENTER){
     render = !render;
@@ -186,36 +165,13 @@ void keyReleased(){
   }
 }
 
-color frameColor(int frame){
-  float c = map(frame, 0, interval * 2, 0, 1);
-  return lerpColor(from, to, c);
-}
-
 void animate(int frame){
   ArrayList<IntList> f = snapshots.get(frame);
-  //color c;
-  //if(colorIn) c = frameColor((frame + interval * 2 - (frameCount % (interval * 2))) % (interval * 2));
-  //else c = line;
   for(IntList i: f){
     for(int j: i){
       pixels[j] = line;
     }
   }
-}
-
-void snapshot(float d){
-  float t = (float)d;
-  IntList i = new IntList();
-  //background(bg);
-  loadPixels();
-  for(int c: narrowBand){
-    //if(step % (interval * 2) == 0) pixels[c] = line;
-    pixels[c] = line;
-    i.append(c);
-  }
-  updatePixels();
-  snapshots.get(step % (interval * 2)).add(i);
-  step ++;
 }
 
 void canvasSetup(){
@@ -225,6 +181,7 @@ void canvasSetup(){
   colorMode(RGB, 255, 255, 255);
   step = 2;
   narrowBand = new PriorityQueue<Integer>(new cellComparator());
+  //narrowBand = new LinkedList<Integer>();
   origin = new IntList();
   obstacles = new IntList();
   snapshots = new ArrayList<ArrayList<IntList>>(interval * 2);
@@ -246,6 +203,7 @@ void canvasSetup(){
   reference = loadImage(filename);
   reference.resize(0, height);
   tracemap = createImage(width, height, RGB);
+  //Turn this on to create a noise pattern as the reference image
   //float increment = 0.02;
   //reference.loadPixels();
   //for(int i = 0; i < width * height; i ++){
@@ -262,11 +220,12 @@ void canvasSetup(){
 void initialize(){
   loadPixels();
   for(int i = 0; i < width * height; i ++){
+    T[i] = Float.MAX_VALUE;
     frozen[i] = false;
     obstacleMap[i] = false;
     color sample = reference.pixels[convertCoords(i, reference)];
     color sample2 = pixels[i];
-    F[i] = map(brightness(sample), brightness(line), brightness(bg), 0.26, 2);
+    F[i] = map(brightness(sample), brightness(line), brightness(bg), 0.13, 1);
     if(blue(sample) > 230 && saturation(sample) > 230) obstacles.append(i);
     boundaryMap[i] = 1;
     if(red(sample2) > 230 && saturation(sample2) > 230){
@@ -275,7 +234,6 @@ void initialize(){
       T[i] = 0;
     }
   }
-  //colorMode(HSB);
   background(bg);
   for(int i = 0; i < width; i ++){
     obstacles.append(i);
@@ -293,13 +251,48 @@ void initialize(){
   }
   for(int o: origin){
     for(int n: neighbors(o)){
-      if(!frozen[n]){
+      if(!frozen[n] && !narrowBand.contains(n)){
         T[n] = 1/F[n];
         narrowBand.add(n);
+        println(n);
       }
     }
   }
 }
+
+int convertCoords(int i, PImage to){
+  int x = i % width;
+  int y = i / width;
+  return constrain(x + y * to.width, 0, to.width * to.height - 1);
+}
+
+//void updateMap(){
+//  println(narrowBand.size());
+//  IntList delete = new IntList();
+//  for(int c: narrowBand){
+//    pixels[c] = color(255,0,0);
+//    float p = T[c];
+//    float q = solveEikonal(c);
+//    // if(q > float(step) / 2) snapshot(T[c]);
+//    //T[c] = q;
+//    if(abs(q - p) < epsilon){
+//      for(int n: neighbors(c)){
+//        if(/*!frozen[n] &&*/ !narrowBand.contains(n)){
+//          float a = T[n];
+//          float b = solveEikonal(n);
+//          if(a > b){
+//            T[n] = b;
+//            narrowBand.add(n);
+//          }
+//        }
+//      }
+//      delete.append(c);
+//    }
+//  }
+//  for(int i: delete){
+//    narrowBand.remove(Integer.valueOf(i));
+//  }
+//}
 
 void updateMap(){
   int c = narrowBand.poll();
@@ -311,26 +304,48 @@ void updateMap(){
         if(narrowBand.contains(n)) narrowBand.remove(n);
         narrowBand.add(n);
       }
-    }
+   }
+}
+
+IntList neighbors(int c){
+  IntList n = new IntList();
+  if((c % width) + 1 < width) n.append(c + 1);
+  if((c % width) - 1 >= 0) n.append(c - 1);
+  if(c + width < T.length) n.append(c + width);
+  if(c - width >= 0) n.append(c - width);
+  return n;
+}
+
+void snapshot(float d){
+  float t = (float)d;
+  IntList i = new IntList();
+  //background(bg);
+  loadPixels();
+  for(int c: narrowBand){
+    //if(step % (interval * 2) == 0) pixels[c] = line;
+    pixels[c] = line;
+    i.append(c);
+  }
+  updatePixels();
+  snapshots.get(step % (interval * 2)).add(i);
+  step ++;
 }
 
 float solveEikonal(int u){
   float a, b, c, f = sq(F[u]);
   a = b = c = 0;
   for(int d = 0; d < 2; d ++){
+    float v = Float.MAX_VALUE;
     for(int j = 1; j > -2; j -= 2){
-      float v = Float.MAX_VALUE;
       int n = getCell(d, u, j);
-      if(n != -1 && frozen[n]){
-        if(T[n] < v){
-          v = (float)T[n];
-        }
+      if(n != -1 && frozen[n] && T[n] < v && !obstacleMap[n]){
+        v = (float)T[n];
       }
-      if(v < Float.MAX_VALUE  && !obstacleMap[n]){
-        a += f;
-        b -= 2 * f * v;
-        c += sq(v) * f;
-      }
+    }
+    if(v < Float.MAX_VALUE){
+      a += f;
+      b -= 2 * f * v;
+      c += sq(v) * f;
     }
   }
   c -= 1;
@@ -348,13 +363,9 @@ int getCell(int dimension, int c, int delta){
   return r;
 }
 
-IntList neighbors(int c){
-  IntList n = new IntList();
-  if((c % width) + 1 < width) n.append(c + 1);
-  if((c % width) - 1 >= 0) n.append(c - 1);
-  if(c + width < T.length) n.append(c + width);
-  if(c - width >= 0) n.append(c - width);
-  return n;
+float solveQuadratic(float a, float b, float c){
+  float det = sq(b) - (4 * a * c);
+  return (-b + sqrt(det)) / (2 * a);
 }
 
 float convolution(int sample, float[][] kernel, float[] image){
@@ -380,17 +391,15 @@ int loc(int x, int y){
   return x + y * width;
 }
 
-float solveQuadratic(float a, float b, float c){
-  float det = sq(b) - (4 * a * c);
-  return (-b + sqrt(det)) / (2 * a);
+float[] erode(float[] map){
+  float[] n = new float[map.length];
+  for(int i = 0; i < n.length; i ++) n[i] = floor(convolution(i, erode, map));
+  return n;
 }
 
-int convertCoords(int i, PImage to){
-  int x = i % width;
-  int y = i / width;
-  return constrain(x + y * to.width, 0, to.width * to.height - 1);
-}
+//SVG tracing (beta)
 
+//Arranges an unsorted set of pixels into a continuous line
 void trace(IntList i){
   for(int k: i){
     if(boundaryMap[k] < 1.0) i.removeValue(k);
@@ -429,6 +438,7 @@ void trace(IntList i){
    }
 }
 
+//Finds the closest pixel to a given pixel
 int closest(int a, IntList i, int dir){
   int c = -1;
   float dist = Float.MAX_VALUE;
@@ -454,6 +464,7 @@ IntList searchArea(int c){
   return n;
 }
 
+//Finds the distance between two pixels, weighted by how aligned they are to the tangent field
 float weightedDistance(int a, int b, int dir){
   float d = solveEuclidean(a, b);
   PVector aV = toVector(a);
@@ -481,46 +492,7 @@ PVector toVector(int i){
   return new PVector(i % width, i / width);
 }
 
-IntList intersection(IntList a, IntList b){ //Largest list must go first
-  IntList i = new IntList();
-  for(int j: a){
-    if(b.hasValue(j)) i.append(j);
-  }
-  return i;
-}
-
-public class cellComparator implements Comparator<Integer>{
-  @Override
-  public int compare(Integer a, Integer b){
-    if(T[a] < T[b]) return -1;
-    if(T[a] > T[b]) return 1;
-    else return 0;
-  }
-}
-
-IntList dither(IntList k){
-  IntList path = k.copy();
-  IntList d = new IntList();
-  float c = 0;
-  d.append(path.get(0));
-  for(int j = 0; j < path.size(); j ++){
-    int i = path.get(j);
-    c += curl[i];
-    if(c > 20){
-      d.append(i);
-      c = 0;
-      j ++;
-    }
-  }
-  return d;
-}
-
-float[] erode(float[] map){
-  float[] n = new float[map.length];
-  for(int i = 0; i < n.length; i ++) n[i] = floor(convolution(i, erode, map));
-  return n;
-}
-
+//Creates a Bezier curve along a sorted set of points
 void save(int frame){
   paths.clear();
   for(IntList i: snapshots.get(frame)) trace(i.copy());
@@ -562,4 +534,22 @@ void save(int frame){
   endRecord();
   println("recorded");
   saved = true;
+}
+
+//Determine where to place points along a line, using the curl
+IntList dither(IntList k){
+  IntList path = k.copy();
+  IntList d = new IntList();
+  float c = 0;
+  d.append(path.get(0));
+  for(int j = 0; j < path.size(); j ++){
+    int i = path.get(j);
+    c += curl[i];
+    if(c > 20){
+      d.append(i);
+      c = 0;
+      j ++;
+    }
+  }
+  return d;
 }
