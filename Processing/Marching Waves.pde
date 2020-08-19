@@ -266,34 +266,6 @@ int convertCoords(int i, PImage to){
   return constrain(x + y * to.width, 0, to.width * to.height - 1);
 }
 
-//void updateMap(){
-//  println(narrowBand.size());
-//  IntList delete = new IntList();
-//  for(int c: narrowBand){
-//    pixels[c] = color(255,0,0);
-//    float p = T[c];
-//    float q = solveEikonal(c);
-//    // if(q > float(step) / 2) snapshot(T[c]);
-//    //T[c] = q;
-//    if(abs(q - p) < epsilon){
-//      for(int n: neighbors(c)){
-//        if(/*!frozen[n] &&*/ !narrowBand.contains(n)){
-//          float a = T[n];
-//          float b = solveEikonal(n);
-//          if(a > b){
-//            T[n] = b;
-//            narrowBand.add(n);
-//          }
-//        }
-//      }
-//      delete.append(c);
-//    }
-//  }
-//  for(int i: delete){
-//    narrowBand.remove(Integer.valueOf(i));
-//  }
-//}
-
 void updateMap(){
   int c = narrowBand.poll();
   frozen[c] = true;
