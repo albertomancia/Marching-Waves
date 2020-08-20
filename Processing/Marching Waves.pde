@@ -5,7 +5,7 @@ String filename = "ellie.png";
 PImage reference, tracemap;
 PShape stencil;
 PGraphics canvas;
-int interval = 18; //Try changing this!
+int interval = 14; //Try changing this!
 int fieldNo = 0;
 int currentFrame = 0;
 int step;
