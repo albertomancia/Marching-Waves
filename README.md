@@ -4,6 +4,8 @@ Copyright © 2020 Alberto Mancia. All rights reserved.
 
 Art program that utilizes James Sethian's fast marching method for simulating wave propagation using the Eikonal Equation.
 
+![Sample output](https://raw.githubusercontent.com/albertomancia/Marching-Waves/master/example.png)
+
 # How to use
 
 Requires Processing 3.5.4: http://processing.org
