@@ -1,7 +1,7 @@
 import java.util.*;
 import processing.svg.*;
 
-String filename = "ellie.png";
+String filename = "misty2.png";
 PImage reference;
 PShape stencil;
 PGraphics canvas;
@@ -15,6 +15,9 @@ color bg = color(255);
 
 float epsilon = 0.1;
 float threshold = 10;
+float[][] erode = {{1.0/9, 1.0/9, 1.0/9},
+                   {1.0/9, 1.0/9, 1.0/9},
+                   {1.0/9, 1.0/9, 1.0/9}};
 
 PriorityQueue<Integer> narrowBand;
 IntList origin, obstacles;
@@ -25,8 +28,7 @@ boolean[] frozen, obstacleMap;
 float[] T, F, boundaryMap;
 
 boolean render = false, pencil = false, record = false, run = true,
-  showField = false, tSolved = false, fieldSolved = false, saved = false,
-  overlay = false;
+  showField = false, tSolved = false, saved = false, overlay = false;
 
 void setup() {
    fullScreen(P2D);
@@ -52,6 +54,7 @@ void draw(){
     }
     //Display and animate the lines
     if (narrowBand.isEmpty()) {
+      if(!tSolved) boundaryMap = erode(boundaryMap);
       tSolved = true;
       if (!showField) {
         background(bg);
@@ -91,7 +94,7 @@ void keyReleased() {
       initialize();
     }
   }
-  else if ((key == 's' || key == 'S') && !run && fieldSolved) save();
+  else if ((key == 's' || key == 'S') && !run && tSolved) save();
   else if (key == 'f' || key == 'F') showField = !showField;
   else if (key == ' ' && !showField) run = !run;
   else if (key == 'z' || key == 'Z') canvas.clear();
@@ -116,10 +119,10 @@ void animate(int frame) {
 void canvasSetup() {
   canvas = createGraphics(width, height);
   tSolved = false;
-  fieldSolved = false;
   colorMode(RGB, 255, 255, 255);
   step = 2;
   narrowBand = new PriorityQueue<Integer>(new cellComparator());
+  //narrowBand = new LinkedList<Integer>();
   origin = new IntList();
   obstacles = new IntList();
   snapshots = new ArrayList<ArrayList<IntList>>(interval * 2);
@@ -274,6 +277,12 @@ int getCell(int dimension, int c, int delta) {
 float solveQuadratic(float a, float b, float c) {
   float det = sq(b) - (4 * a * c);
   return (-b + sqrt(det)) / (2 * a);
+}
+
+float[] erode(float[] map){
+  float[] n = new float[map.length];
+  for(int i = 0; i < n.length; i ++) n[i] = floor(convolution(i, erode, map));
+  return n;
 }
 
 float convolution(int sample, float[][] kernel, float[] image) {
