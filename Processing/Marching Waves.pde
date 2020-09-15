@@ -2,207 +2,137 @@ import java.util.*;
 import processing.svg.*;
 
 String filename = "ellie.png";
-PImage reference, tracemap;
+PImage reference;
 PShape stencil;
 PGraphics canvas;
 int interval = 14; //Try changing this!
-int fieldNo = 0;
 int currentFrame = 0;
-int step;
+int step, count;
 int gridsize = 100;
+int res = 10;
 color line = color(0);
 color bg = color(255);
 
 float epsilon = 0.1;
-float[][] SobelX = {{1, 0, -1}, {2, 0, -2}, {1, 0, -1}};
-float[][] SobelY = {{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}};
-float[][] erode = {{1.0/9, 1.0/9, 1.0/9},
-                   {1.0/9, 1.0/9, 1.0/9},
-                   {1.0/9, 1.0/9, 1.0/9}};
+float threshold = 10;
 
 PriorityQueue<Integer> narrowBand;
 IntList origin, obstacles;
 ArrayList<ArrayList<IntList>> snapshots;
-ArrayList<IntList> paths;
+ArrayList<Segment> paths = new ArrayList<Segment>();
 //Each pixel is referenced by a single integer, which can access each of these arrays:
-PVector[] gradients, tangents;
 boolean[] frozen, obstacleMap;
-float[] T, F, D, tangentX, tangentY, curl, boundaryMap;
+float[] T, F, boundaryMap;
 
 boolean render = false, pencil = false, record = false, run = true,
-        showField = false, tSolved = false, fieldSolved = false, saved = false,
-        overlay = false;
+  showField = false, tSolved = false, fieldSolved = false, saved = false,
+  overlay = false;
 
-void setup(){
-  fullScreen(P2D);
+void setup() {
+   fullScreen(P2D);
+  //size(2000, 1500);
   canvasSetup();
+  paths = new ArrayList<Segment>();
 }
 
 void draw(){
-  if(saved){
+  if (saved) {
     delay(2000);
     saved = false;
   }
-  fieldNo %= 3;
   currentFrame %= interval * 2;
   //Instructions for render mode
-  if(render){
+  if(render) {
     //For each step, process every pixel in the narrow band
     int s = narrowBand.size();
-    for(int i = 0; i < s; i ++){
-      if(!narrowBand.isEmpty()){
+    for (int i = 0; i < s; i ++) {
+      if (!narrowBand.isEmpty()) {
         updateMap();
       }
     }
-    //Once the 2D equation is solved, calculate the tangent and curl fields
-    if(tSolved && !fieldSolved){
-      //Feather the edge of the solution so the tangent and curl fields aren't undefined there
-      for(int o: obstacles){
-        for(int n: searchArea(o)){
-          if(T[n] < T[o]) T[o] = T[n] + 1;
-        }
-      }
-      //Create the tangent vector field using Sobel operations
-      for(int i = 0; i < pixels.length; i ++){
-        float x = convolution(i, SobelX, T);
-        float y = convolution(i, SobelY, T);
-        PVector v = new PVector(x, y);
-        gradients[i] = v;
-        tangents[i] = new PVector(-y, x);
-        v.rotate(HALF_PI);
-        tangentX[i] = v.x;
-        tangentY[i] = v.y;
-      }
-      boundaryMap = erode(boundaryMap);
-      //Find the curl of the tangent field
-      for(int i = 0; i < pixels.length; i ++) curl[i] = abs(convolution(i, SobelX, tangentY) - convolution(i, SobelY, tangentX));
-      fieldSolved = true;
-    }
     //Display and animate the lines
-    if(narrowBand.isEmpty()){
+    if (narrowBand.isEmpty()) {
       tSolved = true;
-      if(!showField){
+      if (!showField) {
         background(bg);
         loadPixels();
         animate(currentFrame);
         updatePixels();
-        delay(50);
-        if(run) currentFrame ++;
-      }else{
-        colorMode(HSB, 360, 255, 255);
+        delay(25);
+        if (run) currentFrame ++;
+      } else {
         loadPixels();
-        for(int i = 0; i < pixels.length; i ++){
-          if(fieldNo == 0) pixels[i] = color(T[i] / 2);
-          else if(fieldNo == 1) pixels[i] = color(degrees(gradients[i].heading() + PI), 255, 255);
-          //else if(fieldNo == 2) pixels[i] = color(degrees(tangents[i].heading() + PI), 255, 255);
-          else if(fieldNo == 2) pixels[i] = color(curl[i] * 10);
+        for (int i = 0; i < pixels.length; i ++) {
+          pixels[i] = color(T[i] /4);
         }
-        for(int i: obstacles) pixels[i] = color(0);
+        for (int i : obstacles) pixels[i] = color(0);
         updatePixels();
-        colorMode(RGB, 255, 255, 255);
       }
     }
   }
-  //Instructions for drawing mode
-  else{
-    background(0, 0, 255);
-    image(reference, 0, 0);
-    canvas.beginDraw();
-    canvas.stroke(255, 0, 0);
-    canvas.strokeWeight(2);
-    canvas.fill(255, 0, 0);
-    //Automatic drawing functions
-    if(keyPressed){
-      if((key == 'r' || key == 'R')){
-        for(int i = 0; i < 2; i ++) canvas.point(random(0, width), random(0, height));
-      }
-      else if((key == 'l' || key == 'L')){
-        canvas.line(random(0, width), 0, random(0, width), height - 1);
-        canvas.line(0, random(0, height), width - 1, random(0, height));
-      }
-      else if((key == 'g' || key == 'G')){
-        int a = gridsize;
-        //Turn this on to rotate the grid
-        //pushMatrix();
-        //translate(width/2 - 150, -100);
-        //rotate(radians(45));
-        for(int i = a; i < height; i += a) canvas.line(0, i, width, i);
-        for(int i = a; i < width; i += a) canvas.line(i, 0, i, height);
-        //popMatrix();
-      }
-    }
-    else if(pencil) canvas.line(pmouseX, pmouseY, mouseX, mouseY);
-    canvas.endDraw();
-    image(canvas, 0, 0);
-  }
+  else drawingMode();
 }
 
-void mousePressed(){pencil = true;}
-void mouseReleased(){pencil = false;}
+void mousePressed() {
+  pencil = true;
+}
+
+void mouseReleased() {
+  pencil = false;
+}
 
 //Key bindings
-void keyReleased(){
-  if(key == ENTER){
+void keyReleased() {
+  if (key == ENTER) {
     render = !render;
-    if(!render) canvasSetup();
-    else{
+    if (!render) canvasSetup();
+    else {
       loadPixels();
       initialize();
     }
   }
-  else if((key == 's' || key == 'S') && !run && fieldSolved) save(currentFrame);
-  else if(key == 'f' || key == 'F') showField = !showField;
-  else if(key == ' ' && !showField) run = !run;
-  else if(key == 'z' || key == 'Z') canvas.clear();
-  else if(key == 'k' || key == 'K') overlay = !overlay;
-  else if(key == 'q' || key == 'Q') fieldNo ++;
-  else if(key == CODED){
-    if(keyCode == LEFT){
-      if(currentFrame > 0) currentFrame --;
+  else if ((key == 's' || key == 'S') && !run && fieldSolved) save();
+  else if (key == 'f' || key == 'F') showField = !showField;
+  else if (key == ' ' && !showField) run = !run;
+  else if (key == 'z' || key == 'Z') canvas.clear();
+  else if (key == 'k' || key == 'K') overlay = !overlay;
+  else if (key == CODED) {
+    if (keyCode == LEFT) {
+      if (currentFrame > 0) currentFrame --;
       else currentFrame = interval * 2 - 1;
-    }
-    else if(keyCode == RIGHT) currentFrame ++;
+    } else if (keyCode == RIGHT) currentFrame ++;
   }
 }
 
-void animate(int frame){
+void animate(int frame) {
   ArrayList<IntList> f = snapshots.get(frame);
-  for(IntList i: f){
-    for(int j: i){
+  for (IntList i : f) {
+    for (int j : i) {
       pixels[j] = line;
     }
   }
 }
 
-void canvasSetup(){
+void canvasSetup() {
   canvas = createGraphics(width, height);
   tSolved = false;
   fieldSolved = false;
   colorMode(RGB, 255, 255, 255);
   step = 2;
   narrowBand = new PriorityQueue<Integer>(new cellComparator());
-  //narrowBand = new LinkedList<Integer>();
   origin = new IntList();
   obstacles = new IntList();
   snapshots = new ArrayList<ArrayList<IntList>>(interval * 2);
-  for(int i = 0; i < interval * 2; i++){
+  for (int i = 0; i < interval * 2; i++) {
     snapshots.add(new ArrayList<IntList>());
   }
-  paths = new ArrayList<IntList>();
   frozen = new boolean[width * height];
   obstacleMap = new boolean[width * height];
   F = new float[width * height];
   T = new float[width * height];
-  tangentX = new float[width * height];
-  tangentY = new float[width * height];
-  curl = new float[width * height];
   boundaryMap = new float[width * height];
-  D = new float[width * height];
-  gradients = new PVector[width * height];
-  tangents = new PVector[width * height];
   reference = loadImage(filename);
   reference.resize(0, height);
-  tracemap = createImage(width, height, RGB);
   //Turn this on to create a noise pattern as the reference image
   //float increment = 0.02;
   //reference.loadPixels();
@@ -217,92 +147,90 @@ void canvasSetup(){
   image(reference, 0, 0);
 }
 
-public class cellComparator implements Comparator<Integer>{
+public class cellComparator implements Comparator<Integer> {
   @Override
-  public int compare(Integer a, Integer b){
-    if(T[a] < T[b]) return -1;
-    if(T[a] > T[b]) return 1;
+    public int compare(Integer a, Integer b) {
+    if (T[a] < T[b]) return -1;
+    if (T[a] > T[b]) return 1;
     else return 0;
   }
 }
 
-void initialize(){
+void initialize() {
   loadPixels();
-  for(int i = 0; i < width * height; i ++){
+  for (int i = 0; i < width * height; i ++) {
     T[i] = Float.MAX_VALUE;
     frozen[i] = false;
     obstacleMap[i] = false;
     color sample = reference.pixels[convertCoords(i, reference)];
     color sample2 = pixels[i];
     F[i] = map(brightness(sample), brightness(line), brightness(bg), 0.13, 1);
-    if(blue(sample) > 230 && saturation(sample) > 230) obstacles.append(i);
+    if (blue(sample) > 230 && saturation(sample) > 230) obstacles.append(i);
     boundaryMap[i] = 1;
-    if(red(sample2) > 230 && saturation(sample2) > 230){
+    if (red(sample2) > 230 && saturation(sample2) > 230) {
       origin.append(i);
       frozen[i] = true;
       T[i] = 0;
     }
   }
   background(bg);
-  for(int i = 0; i < width; i ++){
+  for (int i = 0; i < width; i ++) {
     obstacles.append(i);
     obstacles.append(width * height - i - 1);
   }
-  for(int i = 0; i < height; i ++){
+  for (int i = 0; i < height; i ++) {
     obstacles.append(i * width);
     obstacles.append((i + 1) * width - 1);
   }
-  for(int o: obstacles){
+  for (int o : obstacles) {
     frozen[o] = true;
     obstacleMap[o] = true;
     T[o] = Float.MAX_VALUE;
     boundaryMap[o] = 0;
   }
-  for(int o: origin){
-    for(int n: neighbors(o)){
-      if(!frozen[n] && !narrowBand.contains(n)){
+  for (int o : origin) {
+    for (int n : neighbors(o)) {
+      if (!frozen[n] && !narrowBand.contains(n)) {
         T[n] = 1/F[n];
         narrowBand.add(n);
-        println(n);
       }
     }
   }
 }
 
-int convertCoords(int i, PImage to){
+int convertCoords(int i, PImage to) {
   int x = i % width;
   int y = i / width;
   return constrain(x + y * to.width, 0, to.width * to.height - 1);
 }
 
-void updateMap(){
+void updateMap() {
   int c = narrowBand.poll();
   frozen[c] = true;
-  if(T[c] > float(step) / 2) snapshot(T[c]);
-  for(int n: neighbors(c)){
-      if(!frozen[n]){
-        T[n] = solveEikonal(n);
-        if(narrowBand.contains(n)) narrowBand.remove(n);
-        narrowBand.add(n);
-      }
-   }
+  if (T[c] > float(step) / 2) snapshot(T[c]);
+  for (int n : neighbors(c)) {
+    if (!frozen[n]) {
+      T[n] = solveEikonal(n);
+      if (narrowBand.contains(n)) narrowBand.remove(n);
+      narrowBand.add(n);
+    }
+  }
 }
 
-IntList neighbors(int c){
+IntList neighbors(int c) {
   IntList n = new IntList();
-  if((c % width) + 1 < width) n.append(c + 1);
-  if((c % width) - 1 >= 0) n.append(c - 1);
-  if(c + width < T.length) n.append(c + width);
-  if(c - width >= 0) n.append(c - width);
+  if ((c % width) + 1 < width) n.append(c + 1);
+  if ((c % width) - 1 >= 0) n.append(c - 1);
+  if (c + width < T.length) n.append(c + width);
+  if (c - width >= 0) n.append(c - width);
   return n;
 }
 
-void snapshot(float d){
-  float t = (float)d;
+void snapshot(float d) {
   IntList i = new IntList();
   //background(bg);
   loadPixels();
-  for(int c: narrowBand){
+  for (int c : narrowBand) {
     //if(step % (interval * 2) == 0) pixels[c] = line;
     pixels[c] = line;
     i.append(c);
@@ -312,18 +240,18 @@ void snapshot(float d){
   step ++;
 }
 
-float solveEikonal(int u){
+float solveEikonal(int u) {
   float a, b, c, f = sq(F[u]);
   a = b = c = 0;
-  for(int d = 0; d < 2; d ++){
+  for (int d = 0; d < 2; d ++) {
     float v = Float.MAX_VALUE;
-    for(int j = 1; j > -2; j -= 2){
+    for (int j = 1; j > -2; j -= 2) {
       int n = getCell(d, u, j);
-      if(n != -1 && frozen[n] && T[n] < v && !obstacleMap[n]){
+      if (n != -1 && frozen[n] && T[n] < v && !obstacleMap[n]) {
         v = (float)T[n];
       }
     }
-    if(v < Float.MAX_VALUE){
+    if (v < Float.MAX_VALUE) {
       a += f;
       b -= 2 * f * v;
       c += sq(v) * f;
@@ -333,34 +261,33 @@ float solveEikonal(int u){
   return solveQuadratic(a, b, c);
 }
 
-int getCell(int dimension, int c, int delta){
+int getCell(int dimension, int c, int delta) {
   int r = -1;
-  if(dimension == 1){
-    if((c % width) + 1 < width && (c % width) - 1 >= 0) r = c + delta;
-  }
-  else if(dimension == 0){
-    if(c + width < T.length && c - width >= 0) r = c + (delta * width);
+  if (dimension == 1) {
+    if ((c % width) + 1 < width && (c % width) - 1 >= 0) r = c + delta;
+  } else if (dimension == 0) {
+    if (c + width < T.length && c - width >= 0) r = c + (delta * width);
   }
   return r;
 }
 
-float solveQuadratic(float a, float b, float c){
+float solveQuadratic(float a, float b, float c) {
   float det = sq(b) - (4 * a * c);
   return (-b + sqrt(det)) / (2 * a);
 }
 
-float convolution(int sample, float[][] kernel, float[] image){
+float convolution(int sample, float[][] kernel, float[] image) {
   int x = sample % width;
   int y = sample / width;
   float total = 0;
   int offset = 1;
   int matrixSize = 3;
-  for (int i = 0; i < matrixSize; i++){
-    for (int j= 0; j < matrixSize; j++){
+  for (int i = 0; i < matrixSize; i++) {
+    for (int j= 0; j < matrixSize; j++) {
       int xloc, yloc;
-      if(x > 0 && x < width - 1) xloc = x - i + offset;
+      if (x > 0 && x < width - 1) xloc = x - i + offset;
       else xloc = x;
-      if(y > 0 && y < height - 1) yloc = y - j + offset;
+      if (y > 0 && y < height - 1) yloc = y - j + offset;
       else yloc = y;
       total += image[loc(xloc, yloc)] * kernel[i][j];
     }
@@ -368,169 +295,212 @@ float convolution(int sample, float[][] kernel, float[] image){
   return total;
 }
 
-int loc(int x, int y){
+int loc(int x, int y) {
   return x + y * width;
 }
 
-float[] erode(float[] map){
-  float[] n = new float[map.length];
-  for(int i = 0; i < n.length; i ++) n[i] = floor(convolution(i, erode, map));
-  return n;
-}
-
-//SVG tracing (beta)
-
-//Arranges an unsorted set of pixels into a continuous line
-void trace(IntList i){
-  for(int k: i){
-    if(boundaryMap[k] < 1.0) i.removeValue(k);
-  }
-  i.shuffle();
-  while(i.size() > 0){
-    boolean finishPath[] = {false, false};
-    int[] seekers = new int[2];
-    IntList[] sides = {new IntList(), new IntList()};
-    seekers[0] = i.get(0);
-    tracemap.pixels[seekers[0]] = color(255, 255, 0);
-    i.removeValue(seekers[0]);
-    sides[0].append(seekers[0]);
-    seekers[1] = abs(closest(seekers[0], i, 1));
-    tracemap.pixels[seekers[1]] = color(0, 255, 255);
-    i.removeValue(seekers[1]);
-    sides[1].append(seekers[1]);
-    if(weightedDistance(seekers[1], closest(seekers[1], i, 1), 1) < 0.3) finishPath[1] = true;
-    if(weightedDistance(seekers[0], closest(seekers[0], i, 0), 0) < 0.3) finishPath[0] = true;
-    while(!(finishPath[0] && finishPath[1])){
-      for(int j = 1; j > -1; j --){
-        int c = closest(seekers[j], i, j);
-        if(!finishPath[j] && c >= 0 && !sides[(j + 1) % 2].hasValue(c)){
-          tracemap.pixels[c] = color(j * 255, 0, 255);
-          sides[j].append(c);
-          seekers[j] = c;
-          i.removeValue(c);
-        } else finishPath[j] = true;
-      }
+void drawingMode(){
+  background(0, 0, 255);
+  image(reference, 0, 0);
+  canvas.beginDraw();
+  canvas.stroke(255, 0, 0);
+  canvas.strokeWeight(2);
+  canvas.fill(255, 0, 0);
+  //Automatic drawing functions
+  if (keyPressed) {
+    if ((key == 'r' || key == 'R')) {
+      for (int i = 0; i < 2; i ++) canvas.point(random(0, width), random(0, height));
+    } else if ((key == 'l' || key == 'L')) {
+      canvas.line(random(0, width), 0, random(0, width), height - 1);
+      canvas.line(0, random(0, height), width - 1, random(0, height));
+    } else if ((key == 'g' || key == 'G')) {
+      int a = gridsize;
+      //Turn this on to rotate the grid
+      //pushMatrix();
+      //translate(width/2 - 150, -100);
+      //rotate(radians(45));
+      for (int i = a; i < height; i += a) canvas.line(0, i, width, i);
+      for (int i = a; i < width; i += a) canvas.line(i, 0, i, height);
+      //popMatrix();
     }
-    sides[1].reverse();
-    IntList path = new IntList();
-    path.append(sides[1]);
-    path.append(sides[0]);
-    if(path.size() > 5) paths.add(path);
-   }
+  } else if (pencil) canvas.line(pmouseX, pmouseY, mouseX, mouseY);
+  canvas.endDraw();
+  image(canvas, 0, 0);
 }
 
-//Finds the closest pixel to a given pixel
-int closest(int a, IntList i, int dir){
-  int c = -1;
-  float dist = Float.MAX_VALUE;
-  for(int b: searchArea(a)){
-    if(i.hasValue(b) && weightedDistance(a, b, dir) < dist){
-      c = b;
-      dist = weightedDistance(a, b, dir);
-    }
-  }
-  return c;
-}
+//SVG tracing
 
-IntList searchArea(int c){
-  IntList n = new IntList();
-  for(int dx = -2; dx < 3; dx ++){
-    for(int dy = -2; dy < 3; dy ++){
-      int l = loc((c % width) + dx, (c / width) + dy);
-      if(l >= 0 && l < width * height && l != c){
-        n.append(l);
-      }
-    }
-  }
-  return n;
-}
-
-//Finds the distance between two pixels, weighted by how aligned they are to the tangent field
-float weightedDistance(int a, int b, int dir){
-  float d = solveEuclidean(a, b);
-  PVector aV = toVector(a);
-  PVector bV = toVector(b);
-  PVector t = tangents[a].copy();
-  t.rotate(HALF_PI);
-  bV.sub(aV);
-  float theta = PVector.angleBetween(bV, t);
-  // theta = 1 - (abs(theta - HALF_PI) * 1.5 / PI);
-  theta /= TWO_PI;
-  if(dir == 0) theta += 0.5;
-  else theta = 1 - theta;
-  return d * theta;
-}
-
-float solveEuclidean(int a, int b){
-  int x1 = a % width;
-  int y1 = a / width;
-  int x2 = b % width;
-  int y2 = b / width;
-  return sqrt(sq(x1 - x2) + sq(y1 - y2));
-}
-
-PVector toVector(int i){
-  return new PVector(i % width, i / width);
-}
-
-//Creates a Bezier curve along a sorted set of points
-void save(int frame){
-  paths.clear();
-  for(IntList i: snapshots.get(frame)) trace(i.copy());
-  strokeWeight(1);
+void createLines(){
   noFill();
+  strokeWeight(2);
+  stroke(255, 0, 0);
+  for (int i = 0; i < width-1; i ++) {
+    for (int j = 0; j < height-1; j ++) {
+      float x = i;
+      float y = j;
+      float[] v = {T[loc(i, j)], T[loc(i+1, j)], T[loc(i+1, j+1)], T[loc(i, j+1)]};
+      Point a = new Point(x + lerp(v[0], v[1]), y                   );
+      Point b = new Point(x + 1,                y + lerp(v[1], v[2]));
+      Point c = new Point(x + lerp(v[3], v[2]), y + 1               );
+      Point d = new Point(x,                    y + lerp(v[0], v[3]));
+      int state = getState(signBit(v[0] - threshold), signBit(v[1] - threshold),
+                           signBit(v[2] - threshold), signBit(v[3] - threshold));
+      switch (state){
+      case 1:
+        addSegment(c, d);
+        break;
+      case 2:
+        addSegment(b, c);
+        break;
+      case 3:
+        addSegment(b, d);
+        break;
+      case 4:
+        addSegment(a, b);
+        break;
+      case 5:
+        addSegment(a, b);
+        addSegment(c, d);
+        break;
+      case 6:
+        addSegment(a, c);
+        break;
+      case 7:
+        addSegment(a, d);
+        break;
+      case 8:
+        addSegment(d, a);
+        break;
+      case 9:
+        addSegment(c, a);
+        break;
+      case 10:
+        addSegment(d, a);
+        addSegment(b, c);
+        break;
+      case 11:
+        addSegment(b, a);
+        break;
+      case 12:
+        addSegment(d, b);
+        break;
+      case 13:
+        addSegment(c, b);
+        break;
+      case 14:
+        addSegment(d, c);
+        break;
+      }
+    }
+  }
+  count = paths.size();
+}
+
+class Segment{
+  Point[] points;
+  Segment(Point a, Point b){
+    Point[] h = {a, b};
+    points = h;
+  }
+  Segment(Segment a, Segment b){
+    Point[] h = (Point[])concat(shorten(a.points), b.points);
+    points = h;
+  }
+}
+
+class Point{
+  float x, y;
+  Point(float xpos, float ypos){
+    x = xpos;
+    y = ypos;
+  }
+}
+
+int getState(int a, int b, int c, int d) {
+  return a * 8 + b * 4  + c * 2 + d * 1;
+}
+
+int signBit(float f){
+  return (Float.floatToIntBits(f) >> 31) + 1;
+}
+
+void addSegment(Point start, Point end) {
+  if(boundaryMap[loc(round(start.x), round(start.y))] == 1){
+    paths.add(new Segment(start, end));
+    //line(start.x, start.y, end.x, end.y);
+  }
+}
+
+float lerp(float a, float b){
+    return (a - threshold) / (a - b);
+}
+
+void sortstep(ArrayList<Segment> list){
+ count --;
+ for(int i = 0; i < list.size() - 1; i++){
+   if(match(list.get(i), list.get(i+1))){
+     combine(list, i);
+     count = list.size();
+   }
+   if(i >= list.size() - 1) break;
+   if(!match(list.get(i), list.get(i+1))){
+     swap(list, i);
+   }
+ }
+}
+
+boolean match(Segment a, Segment b){
+  int n = a.points.length - 1;
+  return equal(a.points[n], b.points[0]);
+}
+
+boolean equal(Point v1, Point v2){
+  return v1.x == v2.x && v1.y == v2.y;
+}
+
+void swap(ArrayList<Segment> list, int index){
+  Segment a = list.get(index);
+  Segment b = list.get(index + 1);
+  list.set(index, b);
+  list.set(index + 1, a);
+}
+
+void combine(ArrayList<Segment> list, int index){
+  Segment a = list.get(index);
+  Segment b = list.get(index + 1);
+  Segment combinedSegment = new Segment(a, b);
+  list.remove(a);
+  list.remove(b);
+  list.add(index, combinedSegment);
+}
+
+void render(ArrayList<Segment> list){
+  noFill();
+  strokeWeight(1);
+  stroke(line);
+  for(Segment s: list){
+    beginShape();
+    for(Point p: s.points){
+      vertex(p.x, p.y);
+    }
+    endShape();
+  }
+}
+
+void save(){
   String s = "Capture " + hour() + ":" + minute() + ":" + second() + ".svg";
   beginRecord(SVG, s);
   background(bg);
-  for(int r = 0; r < paths.size(); r ++){
-    IntList i = paths.get(r);
-    IntList d = dither(i);
-    beginShape();
-    PVector v = toVector(d.get(0));
-    vertex(v.x, v.y);
-    for(int k = 1; k < d.size(); k ++){
-      int a = d.get(k - 1);
-      int b = d.get(k);
-      float dist;
-      dist = solveEuclidean(a, b) / 2;
-      PVector tangentFront = gradients[b].copy();
-      PVector tangentBack = gradients[a].copy();
-      tangentFront.rotate(HALF_PI);
-      tangentBack.rotate(HALF_PI);
-      tangentFront.setMag(-dist);
-      tangentBack.setMag(dist);
-      PVector aloc = toVector(a);
-      PVector bloc = toVector(b);
-      tangentFront.add(bloc);
-      tangentBack.add(aloc);
-      bezierVertex(tangentBack.x, tangentBack.y, tangentFront.x, tangentFront.y, bloc.x, bloc.y);
+  for(int i = currentFrame; i < step; i += interval){
+    threshold = i;
+    createLines();
+    while(count > 1){
+      sortstep(paths);
     }
-    stroke(line);
-    noFill();
-    PVector w = toVector(i.get(i.size() - 1));
-    w.lerp(v, 0.5);
-    if(boundaryMap[loc(round(w.x), round(w.y))] == 1.0 && PVector.dist(v, w) < 5) endShape(CLOSE);
-    else endShape();
+    render(paths);
+    paths.clear();
   }
   endRecord();
   println("recorded");
   saved = true;
-}
-
-//Determine where to place points along a line, using the curl
-IntList dither(IntList k){
-  IntList path = k.copy();
-  IntList d = new IntList();
-  float c = 0;
-  d.append(path.get(0));
-  for(int j = 0; j < path.size(); j ++){
-    int i = path.get(j);
-    c += curl[i];
-    if(c > 20){
-      d.append(i);
-      c = 0;
-      j ++;
-    }
-  }
-  return d;
 }
