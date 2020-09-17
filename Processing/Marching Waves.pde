@@ -1,7 +1,7 @@
 import java.util.*;
 import processing.svg.*;
 
-String filename = "misty2.png";
+String filename = "ellie.png";
 PImage reference;
 PShape stencil;
 PGraphics canvas;
@@ -31,8 +31,8 @@ boolean render = false, pencil = false, record = false, run = true,
   showField = false, tSolved = false, saved = false, overlay = false;
 
 void setup() {
-   fullScreen(P2D);
-  //size(2000, 1500);
+  fullScreen(P2D);
+  //size(800, 600, P2D);
   canvasSetup();
   paths = new ArrayList<Segment>();
 }
@@ -120,7 +120,7 @@ void canvasSetup() {
   canvas = createGraphics(width, height);
   tSolved = false;
   colorMode(RGB, 255, 255, 255);
-  step = 2;
+  step = 0;
   narrowBand = new PriorityQueue<Integer>(new cellComparator());
   //narrowBand = new LinkedList<Integer>();
   origin = new IntList();
@@ -210,7 +210,7 @@ int convertCoords(int i, PImage to) {
 void updateMap() {
   int c = narrowBand.poll();
   frozen[c] = true;
-  if (T[c] > float(step) / 2) snapshot(T[c]);
+  if (T[c] > float(step) / 2) snapshot();
   for (int n : neighbors(c)) {
     if (!frozen[n]) {
       T[n] = solveEikonal(n);
@@ -229,13 +229,11 @@ IntList neighbors(int c) {
   return n;
 }
 
-void snapshot(float d) {
+void snapshot() {
   IntList i = new IntList();
-  //background(bg);
   loadPixels();
   for (int c : narrowBand) {
-    //if(step % (interval * 2) == 0) pixels[c] = line;
-    pixels[c] = line;
+    if(step % (interval * 2) == 0) pixels[c] = line;
     i.append(c);
   }
   updatePixels();
@@ -337,7 +335,7 @@ void drawingMode(){
   image(canvas, 0, 0);
 }
 
-//SVG tracing
+//SVG Export
 
 void createLines(){
   noFill();
@@ -436,7 +434,6 @@ int signBit(float f){
 void addSegment(Point start, Point end) {
   if(boundaryMap[loc(round(start.x), round(start.y))] == 1){
     paths.add(new Segment(start, end));
-    //line(start.x, start.y, end.x, end.y);
   }
 }
 
@@ -500,7 +497,7 @@ void save(){
   String s = "Capture " + hour() + ":" + minute() + ":" + second() + ".svg";
   beginRecord(SVG, s);
   background(bg);
-  for(int i = currentFrame; i < step; i += interval){
+  for(int i = currentFrame / 2; i < step; i += interval){
     threshold = i;
     createLines();
     while(count > 1){
